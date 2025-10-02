@@ -137,9 +137,8 @@ fn it_processes_usage_event_across_chunks_until_done() {
             Some(LogLevel::Debug),
             Some(
                 format!(
-                    "#2 handle_stream: body_size: {}, end_of_stream: false, stream_offset: {}",
+                    "#2 handle_stream: body_size: {}, end_of_stream: false",
                     usage_chunk.len(),
-                    0
                 )
                 .as_str(),
             ),
@@ -150,10 +149,10 @@ fn it_processes_usage_event_across_chunks_until_done() {
             Some(LogLevel::Debug),
             Some("#2 handle_stream: processing chunk: data: {\"usage\":{\"total_tokens\":11}}\n\n"),
         )
-        .execute_and_expect(ReturnType::Action(Action::Pause))
+        .execute_and_expect(ReturnType::Action(Action::Continue))
         .unwrap();
 
-    // Second chunk: DONE frame only → captures usage, still not end_of_stream
+    // Second chunk: DONE frame only → captures usage and immediately sends gRPC
     let done_chunk = b"data: [DONE]\n\n";
     let total_len = (usage_chunk.len() + done_chunk.len()) as i32;
     module
@@ -172,9 +171,8 @@ fn it_processes_usage_event_across_chunks_until_done() {
             Some(LogLevel::Debug),
             Some(
                 format!(
-                    "#2 handle_stream: body_size: {}, end_of_stream: false, stream_offset: {}",
+                    "#2 handle_stream: body_size: {}, end_of_stream: false",
                     total_len,
-                    usage_chunk.len()
                 )
                 .as_str(),
             ),
@@ -184,32 +182,6 @@ fn it_processes_usage_event_across_chunks_until_done() {
         .expect_log(
             Some(LogLevel::Debug),
             Some("#2 handle_stream: processing chunk: data: [DONE]\n\n"),
-        )
-        .execute_and_expect(ReturnType::Action(Action::Pause))
-        .unwrap();
-
-    // Third call: end_of_stream true → should now send gRPC using captured usage
-    module
-        .call_proxy_on_response_body(http_context, total_len, true)
-        .expect_log(
-            Some(LogLevel::Debug),
-            Some(
-                format!(
-                    "#2 on_http_response_body: body_size: {}, end_of_stream: true",
-                    total_len
-                )
-                .as_str(),
-            ),
-        )
-        .expect_log(
-            Some(LogLevel::Debug),
-            Some(
-                format!(
-                    "#2 handle_stream: body_size: {}, end_of_stream: true, stream_offset: {}",
-                    total_len, total_len
-                )
-                .as_str(),
-            ),
         )
         .expect_log(Some(LogLevel::Debug), Some("#2 send_grpc_request: limitador-cluster kuadrant.service.ratelimit.v1.RateLimitService Report 5s"))
         .expect_grpc_call(
